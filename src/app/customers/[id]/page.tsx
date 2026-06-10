@@ -7,6 +7,7 @@ import {
 } from "@/lib/customers";
 import { DeleteCustomerButton } from "@/components/DeleteCustomerButton";
 import { PropertyActions } from "@/components/PropertyActions";
+import { listProviders } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,27 @@ export default async function CustomerProfilePage({
   const { id } = await params;
   const customer = await prisma.customer.findUnique({
     where: { id },
-    include: { properties: { orderBy: { createdAt: "asc" } } },
+    include: {
+      properties: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          reports: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              aiProvider: true,
+              error: true,
+              createdAt: true,
+            },
+          },
+        },
+      },
+    },
   });
+
+  const providers = listProviders();
 
   if (!customer) notFound();
 
@@ -71,7 +91,14 @@ export default async function CustomerProfilePage({
               </p>
             )}
             <p className="font-medium text-ink">{formatAddress(p)}</p>
-            <PropertyActions />
+            <PropertyActions
+              propertyId={p.id}
+              providers={providers}
+              reports={p.reports.map((r) => ({
+                ...r,
+                createdAt: r.createdAt.toISOString(),
+              }))}
+            />
           </div>
         ))}
       </section>

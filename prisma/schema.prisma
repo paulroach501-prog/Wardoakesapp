@@ -50,5 +50,37 @@ model Property {
   state      String
   zip        String
 
+  reports    Report[]
+
   @@index([customerId])
+}
+
+// A generated deliverable for a property. The first type is the Weather &
+// Property History Report; the same model will hold future report types.
+model Report {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // "WEATHER_HISTORY" for now; reserved for future report types.
+  type       String   @default("WEATHER_HISTORY")
+  // GENERATING | READY | FAILED
+  status     String   @default("GENERATING")
+
+  // Which AI engine produced the research ("claude", "gemini", or null if none).
+  aiProvider String?
+
+  // Structured research output (narrative + findings + sources).
+  findings   Json?
+  // Branded PDF: either a hosted Blob URL, or inline bytes as a fallback
+  // before object storage is configured.
+  pdfUrl     String?
+  pdfData    Bytes?
+
+  error      String?
+
+  @@index([propertyId])
 }
