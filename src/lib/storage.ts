@@ -8,14 +8,22 @@ export function blobConfigured(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
-export async function uploadPdf(
+export async function uploadFile(
   pathname: string,
   bytes: Uint8Array,
+  contentType: string,
 ): Promise<string | null> {
   if (!blobConfigured()) return null;
   const { url } = await put(pathname, Buffer.from(bytes), {
     access: "public",
-    contentType: "application/pdf",
+    contentType,
   });
   return url;
+}
+
+export function uploadPdf(
+  pathname: string,
+  bytes: Uint8Array,
+): Promise<string | null> {
+  return uploadFile(pathname, bytes, "application/pdf");
 }

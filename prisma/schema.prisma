@@ -51,6 +51,7 @@ model Property {
   zip        String
 
   reports    Report[]
+  measurements Measurement[]
 
   @@index([customerId])
 }
@@ -82,6 +83,36 @@ model Report {
   pdfData    Bytes?
 
   error      String?
+
+  @@index([propertyId])
+}
+
+// A roof/siding measurement for a property: the underlay image, the scale
+// calibration, and the drawn planes. Geometry is stored as JSON so the drawing
+// model can evolve without migrations.
+model Measurement {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // "ROOF" | "SIDING"
+  kind       String   @default("ROOF")
+  label      String?
+
+  // Underlay image: hosted Blob URL, or inline bytes before Blob is configured.
+  imageUrl   String?
+  imageData  Bytes?
+  imageWidth Int?
+  imageHeight Int?
+
+  // Real-world feet per image pixel, from the calibration step (null until set).
+  feetPerPixel Float?
+
+  // Array of planes: { id, name, pitch, points:[{x,y}], edgeTypes:[string] }.
+  planes     Json?
 
   @@index([propertyId])
 }
