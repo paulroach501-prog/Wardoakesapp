@@ -17,9 +17,9 @@ export default async function HomePage({
     where: query
       ? {
           OR: [
-            { firstName: { contains: query } },
-            { lastName: { contains: query } },
-            { companyName: { contains: query } },
+            { firstName: { contains: query, mode: "insensitive" } },
+            { lastName: { contains: query, mode: "insensitive" } },
+            { companyName: { contains: query, mode: "insensitive" } },
           ],
         }
       : undefined,

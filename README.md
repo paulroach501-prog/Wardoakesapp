@@ -38,18 +38,23 @@ The **CRM foundation** is built and runnable:
 
 - **Next.js 15** (App Router) + **React 19** + **TypeScript**
 - **Tailwind CSS v4**
-- **Prisma** ORM — SQLite for local dev, swappable to Postgres for production
+- **Prisma** ORM on **Postgres** (Vercel Postgres / Neon)
+
+## Deploying (Vercel)
+
+1. Import the repo on [vercel.com](https://vercel.com) and deploy.
+2. In the project, open **Storage → Create Database → Postgres** and connect it
+   to the project. This injects `POSTGRES_PRISMA_URL` and
+   `POSTGRES_URL_NON_POOLING` automatically.
+3. **Redeploy.** The build runs `prisma db push`, which creates the tables from
+   `prisma/schema.prisma` — no manual migration step needed at this stage.
 
 ## Run locally
 
 ```bash
 npm install
-npm run db:push   # creates the SQLite dev database + generates the client
+# Put your Postgres connection strings in .env (e.g. from a free Neon project),
+# or run `vercel env pull` to fetch them from your Vercel project.
+npm run db:push   # creates the tables + generates the client
 npm run dev       # http://localhost:3000
 ```
-
-## Notes
-
-- Local data lives in `prisma/dev.db` (git-ignored). For production, point
-  `DATABASE_URL` at Postgres and change the datasource provider in
-  `prisma/schema.prisma`.

@@ -2,17 +2,19 @@
 // Data model. The Customer (contact) → Property (1+) relationship is the
 // backbone: every report, measurement, and inspection attaches to a Property.
 //
-// Dev uses SQLite for zero-setup local runs. To move to Postgres, change the
-// datasource provider to "postgresql" and point DATABASE_URL at your instance —
-// the models below are written to port cleanly.
+// Uses Postgres (Vercel Postgres / Neon). The two URLs are the standard pair
+// the Vercel Postgres integration injects automatically:
+//   POSTGRES_PRISMA_URL      — pooled connection for the running app
+//   POSTGRES_URL_NON_POOLING — direct connection for migrations / db push
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
 }
 
 model Customer {

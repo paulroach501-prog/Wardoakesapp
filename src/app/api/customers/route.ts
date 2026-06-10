@@ -11,9 +11,9 @@ export async function GET(request: Request) {
     where: q
       ? {
           OR: [
-            { firstName: { contains: q } },
-            { lastName: { contains: q } },
-            { companyName: { contains: q } },
+            { firstName: { contains: q, mode: "insensitive" } },
+            { lastName: { contains: q, mode: "insensitive" } },
+            { companyName: { contains: q, mode: "insensitive" } },
           ],
         }
       : undefined,
