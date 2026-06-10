@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   AIProvider,
+  ModelOption,
   PropertyResearchInput,
   ResearchResult,
   ResearchFinding,
@@ -13,13 +14,23 @@ import {
 export class ClaudeProvider implements AIProvider {
   readonly name = "claude";
   readonly label = "Claude (Anthropic)";
+  readonly defaultModel = "claude-opus-4-8";
+  readonly models: ModelOption[] = [
+    { id: "claude-opus-4-8", label: "Opus 4.8 — most capable" },
+    { id: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
+    { id: "claude-haiku-4-5", label: "Haiku 4.5 — fast & cheap" },
+  ];
 
   get available(): boolean {
     return Boolean(process.env.ANTHROPIC_API_KEY);
   }
 
-  async research(input: PropertyResearchInput): Promise<ResearchResult> {
+  async research(
+    input: PropertyResearchInput,
+    model?: string,
+  ): Promise<ResearchResult> {
     const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+    const modelId = model ?? this.defaultModel;
 
     const userPrompt = `Subject property: ${input.address}
 
@@ -33,28 +44,25 @@ ${RESEARCH_OUTPUT_INSTRUCTIONS}`;
       { role: "user", content: userPrompt },
     ];
 
-    // The web_search tool runs a server-side loop; it can return pause_turn,
-    // which we continue by re-sending the accumulated turn.
-    let response = await client.messages.create({
-      model: "claude-opus-4-8",
+    // Adaptive thinking isn't supported on Haiku; only enable it where valid.
+    const supportsThinking = /opus|sonnet|fable/.test(modelId);
+    const params: Anthropic.MessageCreateParamsNonStreaming = {
+      model: modelId,
       max_tokens: 8000,
-      thinking: { type: "adaptive" },
       system: SYSTEM_PROMPT,
       tools: [{ type: "web_search_20260209", name: "web_search" }],
       messages,
-    });
+      ...(supportsThinking ? { thinking: { type: "adaptive" as const } } : {}),
+    };
+
+    // The web_search tool runs a server-side loop; it can return pause_turn,
+    // which we continue by re-sending the accumulated turn.
+    let response = await client.messages.create(params);
 
     let guard = 0;
     while (response.stop_reason === "pause_turn" && guard < 6) {
       messages.push({ role: "assistant", content: response.content });
-      response = await client.messages.create({
-        model: "claude-opus-4-8",
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        system: SYSTEM_PROMPT,
-        tools: [{ type: "web_search_20260209", name: "web_search" }],
-        messages,
-      });
+      response = await client.messages.create({ ...params, messages });
       guard += 1;
     }
 

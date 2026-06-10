@@ -8,15 +8,21 @@ export * from "./types";
 // orchestrator resolves a provider by name. Claude is the default.
 const PROVIDERS: AIProvider[] = [new ClaudeProvider(), new GeminiProvider()];
 
-export function listProviders(): {
+export type ProviderInfo = {
   name: string;
   label: string;
   available: boolean;
-}[] {
+  defaultModel: string;
+  models: { id: string; label: string }[];
+};
+
+export function listProviders(): ProviderInfo[] {
   return PROVIDERS.map((p) => ({
     name: p.name,
     label: p.label,
     available: p.available,
+    defaultModel: p.defaultModel,
+    models: p.models,
   }));
 }
 

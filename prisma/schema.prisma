@@ -70,8 +70,9 @@ model Report {
   // GENERATING | READY | FAILED
   status     String   @default("GENERATING")
 
-  // Which AI engine produced the research ("claude", "gemini", or null if none).
+  // Which AI engine + model produced the research (null if none).
   aiProvider String?
+  aiModel    String?
 
   // Structured research output (narrative + findings + sources).
   findings   Json?
@@ -83,4 +84,12 @@ model Report {
   error      String?
 
   @@index([propertyId])
+}
+
+// Simple key/value app settings (e.g. default AI provider + model per task).
+// Keyed strings like "report.provider" / "report.model".
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }

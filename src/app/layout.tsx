@@ -41,9 +41,12 @@ export default function RootLayout({
                 Ward &amp; Oakes
               </span>
             </Link>
-            <span className="text-[11px] uppercase tracking-widest text-slate-400">
-              FCA Field
-            </span>
+            <Link
+              href="/settings"
+              className="text-[11px] uppercase tracking-widest text-slate-400 active:text-white"
+            >
+              Settings
+            </Link>
           </div>
         </header>
         <main className="mx-auto max-w-2xl px-4 py-5">{children}</main>

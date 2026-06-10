@@ -30,6 +30,7 @@ export default async function CustomerProfilePage({
               type: true,
               status: true,
               aiProvider: true,
+              aiModel: true,
               error: true,
               createdAt: true,
             },

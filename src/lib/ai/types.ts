@@ -22,6 +22,11 @@ export type PropertyResearchInput = {
   weatherContext: string;
 };
 
+export type ModelOption = {
+  id: string;
+  label: string;
+};
+
 export type ResearchResult = {
   /** Which engine produced this ("claude" | "gemini"). */
   provider: string;
@@ -35,13 +40,18 @@ export interface AIProvider {
   readonly name: string;
   /** Human-facing label for the UI. */
   readonly label: string;
+  /** Selectable models for this provider (best → cheapest). */
+  readonly models: ModelOption[];
+  /** Default model id when none is chosen. */
+  readonly defaultModel: string;
   /** True when the required API key is present in the environment. */
   readonly available: boolean;
   /**
    * Research the property using live web sources and return structured
    * findings. Implementations should cite sources for each finding.
+   * @param model optional model id override (defaults to defaultModel).
    */
-  research(input: PropertyResearchInput): Promise<ResearchResult>;
+  research(input: PropertyResearchInput, model?: string): Promise<ResearchResult>;
 }
 
 // The JSON shape we ask the model to return. Kept in one place so both

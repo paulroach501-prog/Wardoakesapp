@@ -1,5 +1,6 @@
 import {
   AIProvider,
+  ModelOption,
   PropertyResearchInput,
   ResearchResult,
   RESEARCH_OUTPUT_INSTRUCTIONS,
@@ -13,16 +14,24 @@ import { parseResearch } from "./claude";
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini";
   readonly label = "Gemini (Google)";
-
-  private readonly model = "gemini-2.0-flash";
+  readonly defaultModel = "gemini-2.0-flash";
+  readonly models: ModelOption[] = [
+    { id: "gemini-2.0-flash", label: "2.0 Flash — fast, free tier" },
+    { id: "gemini-1.5-pro", label: "1.5 Pro — higher quality" },
+    { id: "gemini-1.5-flash", label: "1.5 Flash — fast" },
+  ];
 
   get available(): boolean {
     return Boolean(process.env.GEMINI_API_KEY);
   }
 
-  async research(input: PropertyResearchInput): Promise<ResearchResult> {
+  async research(
+    input: PropertyResearchInput,
+    model?: string,
+  ): Promise<ResearchResult> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+    const modelId = model ?? this.defaultModel;
 
     const prompt = `${SYSTEM_PROMPT}
 
@@ -34,7 +43,7 @@ ${input.weatherContext}
 Research this property and compile the Weather & Property History Report.
 ${RESEARCH_OUTPUT_INSTRUCTIONS}`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
     const res = await fetch(url, {
       method: "POST",

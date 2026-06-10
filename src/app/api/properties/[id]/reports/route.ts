@@ -20,11 +20,13 @@ export async function POST(
   }
 
   let providerName: string | undefined;
+  let model: string | undefined;
   try {
-    const body = (await request.json()) as { provider?: string };
+    const body = (await request.json()) as { provider?: string; model?: string };
     providerName = body?.provider;
+    model = body?.model;
   } catch {
-    // No body is fine — use the default provider.
+    // No body is fine — fall back to saved defaults in the orchestrator.
   }
 
   const report = await prisma.report.create({
@@ -32,7 +34,7 @@ export async function POST(
   });
 
   try {
-    await generateWeatherHistoryReport(report.id, providerName);
+    await generateWeatherHistoryReport(report.id, providerName, model);
   } catch {
     // Status is already persisted as FAILED by the orchestrator.
   }

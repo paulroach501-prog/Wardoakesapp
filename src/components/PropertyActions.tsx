@@ -3,12 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type Provider = { name: string; label: string; available: boolean };
+type Provider = {
+  name: string;
+  label: string;
+  available: boolean;
+  defaultModel: string;
+  models: { id: string; label: string }[];
+};
 type Report = {
   id: string;
   type: string;
   status: string;
   aiProvider: string | null;
+  aiModel: string | null;
   error: string | null;
   createdAt: string;
 };
@@ -32,6 +39,14 @@ export function PropertyActions({
   const [busy, setBusy] = useState(false);
   const configured = providers.filter((p) => p.available);
   const [engine, setEngine] = useState(configured[0]?.name ?? "");
+  const currentProvider = configured.find((p) => p.name === engine);
+  const [model, setModel] = useState(currentProvider?.defaultModel ?? "");
+
+  function onEngineChange(name: string) {
+    setEngine(name);
+    const next = configured.find((p) => p.name === name);
+    setModel(next?.defaultModel ?? "");
+  }
 
   async function orderHistoryReport() {
     setBusy(true);
@@ -39,7 +54,7 @@ export function PropertyActions({
       const res = await fetch(`/api/properties/${propertyId}/reports`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(engine ? { provider: engine } : {}),
+        body: JSON.stringify(engine ? { provider: engine, model } : {}),
       });
       if (!res.ok) {
         const { error } = await res.json().catch(() => ({ error: "" }));
@@ -79,12 +94,11 @@ export function PropertyActions({
           </button>
         </div>
 
-        <div className="mt-2 flex items-center gap-2">
-          <label className="text-xs text-ink-soft">Engine:</label>
-          {configured.length > 0 ? (
+        {configured.length > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
               value={engine}
-              onChange={(e) => setEngine(e.target.value)}
+              onChange={(e) => onEngineChange(e.target.value)}
               className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink"
             >
               {configured.map((p) => (
@@ -93,12 +107,23 @@ export function PropertyActions({
                 </option>
               ))}
             </select>
-          ) : (
-            <span className="text-xs text-amber-700">
-              No AI key set — report will include NOAA/NWS context only.
-            </span>
-          )}
-        </div>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink"
+            >
+              {(currentProvider?.models ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-amber-700">
+            No AI key set — report will include NOAA/NWS context only.
+          </p>
+        )}
 
         {historyReports.length > 0 && (
           <ul className="mt-3 space-y-1.5 border-t border-slate-200 pt-2">
@@ -115,6 +140,7 @@ export function PropertyActions({
                   <span className="text-ink-soft">
                     {new Date(r.createdAt).toLocaleDateString()}
                     {r.aiProvider ? ` · ${r.aiProvider}` : ""}
+                    {r.aiModel ? ` (${r.aiModel})` : ""}
                   </span>
                 </span>
                 {r.status === "READY" && (

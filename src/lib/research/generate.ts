@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { formatAddress, customerDisplayName } from "@/lib/customers";
 import { getWeatherContext } from "@/lib/research/weather";
 import { selectProvider, ResearchResult } from "@/lib/ai";
+import { getReportAIConfig } from "@/lib/settings";
 import { renderReportPdf } from "@/lib/pdf/report";
 import { uploadPdf } from "@/lib/storage";
 
@@ -14,6 +15,7 @@ import { uploadPdf } from "@/lib/storage";
 export async function generateWeatherHistoryReport(
   reportId: string,
   providerName?: string,
+  model?: string,
 ): Promise<void> {
   const report = await prisma.report.findUnique({
     where: { id: reportId },
@@ -28,16 +30,23 @@ export async function generateWeatherHistoryReport(
   try {
     const weather = await getWeatherContext(address);
 
+    // Resolve provider + model: explicit override first, then saved defaults.
+    const saved = await getReportAIConfig();
+    const resolvedProviderName = providerName ?? saved.provider ?? undefined;
+    const resolvedModel = model ?? saved.model ?? undefined;
+
     let research: ResearchResult | null = null;
     let usedProvider: string | null = null;
-    const provider = selectProvider(providerName);
+    let usedModel: string | null = null;
+    const provider = selectProvider(resolvedProviderName);
     if (provider && provider.available) {
       try {
-        research = await provider.research({
-          address,
-          weatherContext: weather.summary,
-        });
+        research = await provider.research(
+          { address, weatherContext: weather.summary },
+          resolvedModel,
+        );
         usedProvider = provider.name;
+        usedModel = resolvedModel ?? provider.defaultModel;
       } catch (err) {
         // AI failed — keep going with the NOAA-only report.
         console.error("AI research failed:", err);
@@ -48,7 +57,7 @@ export async function generateWeatherHistoryReport(
       customerName,
       address,
       generatedAt: new Date(),
-      aiProvider: usedProvider,
+      aiProvider: usedProvider ? `${usedProvider}${usedModel ? ` / ${usedModel}` : ""}` : null,
       weatherSummary: weather.summary,
       research,
     });
@@ -61,6 +70,7 @@ export async function generateWeatherHistoryReport(
       data: {
         status: "READY",
         aiProvider: usedProvider,
+        aiModel: usedModel,
         findings: research ? JSON.parse(JSON.stringify(research)) : undefined,
         pdfUrl: url,
         // Fall back to inline bytes when Blob isn't configured yet.
