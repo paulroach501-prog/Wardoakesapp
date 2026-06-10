@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0f172a;
+  --color-ink-soft: #334155;
+  --color-brand: #1d4ed8;
+  --color-brand-dark: #1e40af;
+  --color-surface: #ffffff;
+  --color-canvas: #f1f5f9;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  /* Respect mobile safe areas (notch / home indicator). */
+  padding-bottom: env(safe-area-inset-bottom);
+}
