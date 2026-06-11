@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Stage, Layer, Image as KImage, Line, Circle, Text } from "react-konva";
+import { Stage, Layer, Image as KImage, Line, Circle } from "react-konva";
 import type Konva from "konva";
 import {
   Plane,
@@ -9,13 +9,26 @@ import {
   EdgeType,
   EDGE_TYPES,
   snapToVertex,
+  snapToEdge,
+  constrainAngle,
+  alignmentVertices,
   totalMetrics,
   planeMetrics,
   distance,
 } from "@/lib/measure/geometry";
 
 type Mode = "pan" | "calibrate" | "draw";
-const SNAP_PX = 14; // screen-pixel snap threshold (scaled by zoom into world units)
+type Candidate = { pt: Point; kind: "vertex" | "edge" | "angle" | "free" };
+const SNAP_PX = 14;
+
+const EDGE_COLORS: Record<EdgeType, string> = {
+  eave: "#64748b",
+  rake: "#94a3b8",
+  ridge: "#dc2626",
+  hip: "#f59e0b",
+  valley: "#2563eb",
+  other: "#0f172a",
+};
 
 let _id = 0;
 const newId = () => `p${Date.now()}_${_id++}`;
@@ -46,18 +59,18 @@ export function MeasureCanvas({
   const [mode, setMode] = useState<Mode>("pan");
   const [planes, setPlanes] = useState<Plane[]>(initialPlanes);
   const [draft, setDraft] = useState<Point[]>([]);
-  const [hover, setHover] = useState<Point | null>(null);
-  const [snapPt, setSnapPt] = useState<Point | null>(null);
+  const [cand, setCand] = useState<Candidate | null>(null);
+  const [align, setAlign] = useState({ vertical: false, horizontal: false });
 
   const [calib, setCalib] = useState<{ a?: Point; b?: Point }>({});
   const [feetPerPixel, setFeetPerPixel] = useState<number | null>(initialFeetPerPixel);
   const [feetInput, setFeetInput] = useState("");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<{ planeId: string; index: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  // --- load underlay image + fit to container ---
   useEffect(() => {
     const image = new window.Image();
     image.crossOrigin = "anonymous";
@@ -69,24 +82,21 @@ export function MeasureCanvas({
     const el = containerRef.current;
     if (!el) return;
     const measure = () => {
-      const w = el.clientWidth;
-      const h = Math.max(380, Math.min(window.innerHeight - 240, 720));
-      setSize({ width: w, height: h });
+      setSize({
+        width: el.clientWidth,
+        height: Math.max(380, Math.min(window.innerHeight - 240, 720)),
+      });
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // Fit the image into view once both image + size are known.
   useEffect(() => {
     if (!img || !size.width) return;
     const s = Math.min(size.width / imageWidth, size.height / imageHeight) * 0.95;
     setScale(s);
-    setPos({
-      x: (size.width - imageWidth * s) / 2,
-      y: (size.height - imageHeight * s) / 2,
-    });
+    setPos({ x: (size.width - imageWidth * s) / 2, y: (size.height - imageHeight * s) / 2 });
   }, [img, size, imageWidth, imageHeight]);
 
   const worldRadius = SNAP_PX / scale;
@@ -98,33 +108,42 @@ export function MeasureCanvas({
     return p ? { x: p.x, y: p.y } : null;
   }, []);
 
-  // --- zoom (wheel) about the cursor ---
+  // Snap precedence: existing vertex → existing edge → 90/45 angle → free.
+  const computeCandidate = useCallback(
+    (raw: Point): Candidate => {
+      const v = snapToVertex(raw, planes, worldRadius, draft);
+      if (v) return { pt: v, kind: "vertex" };
+      const e = snapToEdge(raw, planes, worldRadius);
+      if (e) return { pt: e.point, kind: "edge" };
+      const a = constrainAngle(draft, raw);
+      if (a) return { pt: a, kind: "angle" };
+      return { pt: raw, kind: "free" };
+    },
+    [planes, draft, worldRadius],
+  );
+
   function onWheel(e: Konva.KonvaEventObject<WheelEvent>) {
     e.evt.preventDefault();
     const stage = stageRef.current;
-    if (!stage) return;
-    const old = scale;
-    const ptr = stage.getPointerPosition();
+    const ptr = stage?.getPointerPosition();
     if (!ptr) return;
-    const worldX = (ptr.x - pos.x) / old;
-    const worldY = (ptr.y - pos.y) / old;
-    const next = Math.max(0.05, Math.min(40, old * (e.evt.deltaY > 0 ? 0.9 : 1.1)));
+    const old = scale;
+    const wx = (ptr.x - pos.x) / old;
+    const wy = (ptr.y - pos.y) / old;
+    const next = Math.max(0.05, Math.min(60, old * (e.evt.deltaY > 0 ? 0.9 : 1.1)));
     setScale(next);
-    setPos({ x: ptr.x - worldX * next, y: ptr.y - worldY * next });
+    setPos({ x: ptr.x - wx * next, y: ptr.y - wy * next });
   }
 
   function zoomBy(factor: number) {
-    const next = Math.max(0.05, Math.min(40, scale * factor));
+    const next = Math.max(0.05, Math.min(60, scale * factor));
     const cx = size.width / 2;
     const cy = size.height / 2;
-    const worldX = (cx - pos.x) / scale;
-    const worldY = (cy - pos.y) / scale;
     setScale(next);
-    setPos({ x: cx - worldX * next, y: cy - worldY * next });
+    setPos({ x: cx - ((cx - pos.x) / scale) * next, y: cy - ((cy - pos.y) / scale) * next });
   }
 
-  // --- pinch zoom (two-finger) ---
-  const pinch = useRef<{ dist: number; center: Point } | null>(null);
+  const pinch = useRef<{ dist: number } | null>(null);
   function onTouchMove(e: Konva.KonvaEventObject<TouchEvent>) {
     const t = e.evt.touches;
     if (t.length !== 2) return;
@@ -134,21 +153,16 @@ export function MeasureCanvas({
     const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
     const center = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
     if (pinch.current) {
-      const ratio = dist / pinch.current.dist;
-      const next = Math.max(0.05, Math.min(40, scale * ratio));
-      const worldX = (center.x - pos.x) / scale;
-      const worldY = (center.y - pos.y) / scale;
+      const next = Math.max(0.05, Math.min(60, scale * (dist / pinch.current.dist)));
+      const wx = (center.x - pos.x) / scale;
+      const wy = (center.y - pos.y) / scale;
       setScale(next);
-      setPos({ x: center.x - worldX * next, y: center.y - worldY * next });
+      setPos({ x: center.x - wx * next, y: center.y - wy * next });
     }
-    pinch.current = { dist, center };
-  }
-  function onTouchEnd() {
-    pinch.current = null;
+    pinch.current = { dist };
   }
 
-  // --- placing points (click / tap) ---
-  function onStageClick() {
+  function onStageClick(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     const p = pointer();
     if (!p) return;
 
@@ -159,13 +173,20 @@ export function MeasureCanvas({
     }
 
     if (mode === "draw") {
-      const snapped = snapToVertex(p, planes, worldRadius, draft) ?? p;
-      // Close the polygon if tapping near the first point.
-      if (draft.length >= 3 && distance(snapped, draft[0]) <= worldRadius) {
+      const c = computeCandidate(p);
+      if (draft.length >= 3 && distance(c.pt, draft[0]) <= worldRadius) {
         finishPlane();
         return;
       }
-      setDraft((d) => [...d, snapped]);
+      setDraft((d) => [...d, c.pt]);
+      setDirty(true);
+      return;
+    }
+
+    // pan mode: tapping empty space clears selection
+    if (e.target === e.target.getStage()) {
+      setSelectedId(null);
+      setSelectedEdge(null);
     }
   }
 
@@ -173,10 +194,12 @@ export function MeasureCanvas({
     if (mode === "pan") return;
     const p = pointer();
     if (!p) return;
-    setHover(p);
     if (mode === "draw") {
-      const s = snapToVertex(p, planes, worldRadius, draft);
-      setSnapPt(s);
+      const c = computeCandidate(p);
+      setCand(c);
+      setAlign(alignmentVertices(c.pt, planes, worldRadius));
+    } else if (mode === "calibrate") {
+      setCand({ pt: p, kind: "free" });
     }
   }
 
@@ -192,16 +215,15 @@ export function MeasureCanvas({
     setPlanes((ps) => [...ps, plane]);
     setSelectedId(plane.id);
     setDraft([]);
-    setSnapPt(null);
+    setCand(null);
     setDirty(true);
   }
 
   function applyCalibration() {
     if (!calib.a || !calib.b) return;
     const feet = parseFloat(feetInput);
-    if (!feet || feet <= 0) return;
     const px = distance(calib.a, calib.b);
-    if (px <= 0) return;
+    if (!feet || feet <= 0 || px <= 0) return;
     setFeetPerPixel(feet / px);
     setCalib({});
     setFeetInput("");
@@ -211,6 +233,17 @@ export function MeasureCanvas({
 
   function updatePlane(id: string, patch: Partial<Plane>) {
     setPlanes((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    setDirty(true);
+  }
+  function setEdgeType(planeId: string, index: number, type: EdgeType) {
+    setPlanes((ps) =>
+      ps.map((p) => {
+        if (p.id !== planeId) return p;
+        const edgeTypes = [...p.edgeTypes];
+        edgeTypes[index] = type;
+        return { ...p, edgeTypes };
+      }),
+    );
     setDirty(true);
   }
   function deletePlane(id: string) {
@@ -237,9 +270,9 @@ export function MeasureCanvas({
   }
 
   const totals = feetPerPixel ? totalMetrics(planes, feetPerPixel) : null;
-  const selected = planes.find((p) => p.id === selectedId) ?? null;
-
-  const previewColor = snapPt ? "#dc2626" : "#1d4ed8";
+  const candColor =
+    cand?.kind === "vertex" ? "#dc2626" : cand?.kind === "edge" ? "#f59e0b" : "#1d4ed8";
+  const selectedPlane = planes.find((p) => p.id === selectedId) ?? null;
 
   return (
     <div className="space-y-3">
@@ -253,54 +286,42 @@ export function MeasureCanvas({
               setMode(m);
               setDraft([]);
               setCalib({});
+              setCand(null);
             }}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize ${
-              mode === m
-                ? "bg-brand text-white"
-                : "border border-slate-300 bg-white text-ink"
+              mode === m ? "bg-brand text-white" : "border border-slate-300 bg-white text-ink"
             }`}
           >
-            {m === "calibrate" ? "Set scale" : m}
+            {m === "calibrate" ? "Set scale" : m === "pan" ? "Pan / select" : "Draw"}
           </button>
         ))}
         <span className="mx-1 h-5 w-px bg-slate-300" />
         <button type="button" onClick={() => zoomBy(1.25)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs">＋</button>
         <button type="button" onClick={() => zoomBy(0.8)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs">－</button>
         {mode === "draw" && draft.length >= 3 && (
-          <button type="button" onClick={finishPlane} className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white">
-            Finish plane
-          </button>
+          <button type="button" onClick={finishPlane} className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white">Finish</button>
         )}
-        <span className="ml-auto text-xs text-ink-soft">
-          {feetPerPixel ? "scale set ✓" : "scale not set"}
-        </span>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving || !dirty}
-          className="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-        >
+        {mode === "draw" && draft.length > 0 && (
+          <button type="button" onClick={() => { setDraft((d) => d.slice(0, -1)); }} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs">Undo pt</button>
+        )}
+        <span className="ml-auto text-xs text-ink-soft">{feetPerPixel ? "scale ✓" : "no scale"}</span>
+        <button type="button" onClick={save} disabled={saving || !dirty} className="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
           {saving ? "Saving…" : dirty ? "Save" : "Saved"}
         </button>
       </div>
 
       {mode === "calibrate" && (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Tap two points along a known distance (a wall, a documented ridge), then enter its length in feet.
-        </p>
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Tap two points along a known distance, then enter its length in feet.</p>
       )}
       {mode === "draw" && (
-        <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          Tap to place corners. Tap the first point (or “Finish plane”) to close. Points snap to existing corners — zoom in for finer snapping.
-        </p>
+        <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">Tap corners. Snaps to corners (red), existing edges (orange), and 90°/45° angles. Tap the first point or “Finish” to close.</p>
+      )}
+      {mode === "pan" && (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-ink-soft">Tap an edge to label it, or a plane to set its pitch. Drag to pan, pinch/scroll to zoom.</p>
       )}
 
       {/* Canvas */}
-      <div
-        ref={containerRef}
-        className="overflow-hidden rounded-xl border border-slate-300 bg-slate-100"
-        style={{ touchAction: "none" }}
-      >
+      <div ref={containerRef} className="overflow-hidden rounded-xl border border-slate-300 bg-slate-100" style={{ touchAction: "none" }}>
         <Stage
           ref={stageRef}
           width={size.width}
@@ -316,87 +337,127 @@ export function MeasureCanvas({
           onTap={onStageClick}
           onMouseMove={onStageMove}
           onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+          onTouchEnd={() => (pinch.current = null)}
         >
           <Layer listening={false}>
             {img && <KImage image={img} width={imageWidth} height={imageHeight} />}
           </Layer>
 
+          {/* alignment + crosshair guides while drawing */}
+          {mode === "draw" && cand && (
+            <Layer listening={false}>
+              <Line points={[cand.pt.x, -1e5, cand.pt.x, 1e5]} stroke={align.vertical ? "#dc2626" : "#93c5fd"} strokeWidth={1 / scale} dash={[6 / scale, 6 / scale]} />
+              <Line points={[-1e5, cand.pt.y, 1e5, cand.pt.y]} stroke={align.horizontal ? "#dc2626" : "#93c5fd"} strokeWidth={1 / scale} dash={[6 / scale, 6 / scale]} />
+            </Layer>
+          )}
+
           <Layer>
-            {/* committed planes */}
+            {/* committed planes: fill + per-edge colored, clickable segments */}
             {planes.map((pl) => {
               const flat = pl.points.flatMap((p) => [p.x, p.y]);
               const isSel = pl.id === selectedId;
               return (
                 <Line
-                  key={pl.id}
+                  key={`fill-${pl.id}`}
                   points={flat}
                   closed
-                  stroke={isSel ? "#0f172a" : "#1d4ed8"}
-                  strokeWidth={(isSel ? 2.5 : 1.8) / scale}
-                  fill={isSel ? "rgba(15,23,42,0.12)" : "rgba(29,78,216,0.10)"}
-                  onClick={() => setSelectedId(pl.id)}
-                  onTap={() => setSelectedId(pl.id)}
+                  stroke="transparent"
+                  fill={isSel ? "rgba(15,23,42,0.14)" : "rgba(29,78,216,0.08)"}
+                  onClick={() => { setSelectedId(pl.id); setSelectedEdge(null); }}
+                  onTap={() => { setSelectedId(pl.id); setSelectedEdge(null); }}
                 />
               );
             })}
-            {/* vertices of committed planes */}
+            {planes.flatMap((pl) => {
+              const n = pl.points.length;
+              return pl.points.map((a, i) => {
+                const b = pl.points[(i + 1) % n];
+                const type = pl.edgeTypes[i] ?? "other";
+                const isSelEdge = selectedEdge?.planeId === pl.id && selectedEdge.index === i;
+                return (
+                  <Line
+                    key={`edge-${pl.id}-${i}`}
+                    points={[a.x, a.y, b.x, b.y]}
+                    stroke={EDGE_COLORS[type]}
+                    strokeWidth={(isSelEdge ? 5 : 2.5) / scale}
+                    hitStrokeWidth={16 / scale}
+                    onClick={(e) => { e.cancelBubble = true; setSelectedEdge({ planeId: pl.id, index: i }); setSelectedId(pl.id); }}
+                    onTap={(e) => { e.cancelBubble = true; setSelectedEdge({ planeId: pl.id, index: i }); setSelectedId(pl.id); }}
+                  />
+                );
+              });
+            })}
             {planes.flatMap((pl) =>
               pl.points.map((p, i) => (
-                <Circle key={`${pl.id}-${i}`} x={p.x} y={p.y} radius={4 / scale} fill="#1d4ed8" />
+                <Circle key={`v-${pl.id}-${i}`} x={p.x} y={p.y} radius={4 / scale} fill="#1d4ed8" />
               )),
             )}
 
-            {/* draft polygon */}
+            {/* draft */}
             {draft.length > 0 && (
-              <Line
-                points={[
-                  ...draft.flatMap((p) => [p.x, p.y]),
-                  ...(hover ? [(snapPt ?? hover).x, (snapPt ?? hover).y] : []),
-                ]}
-                stroke={previewColor}
-                strokeWidth={2 / scale}
-              />
+              <Line points={[...draft.flatMap((p) => [p.x, p.y]), ...(cand ? [cand.pt.x, cand.pt.y] : [])]} stroke={candColor} strokeWidth={2 / scale} />
             )}
             {draft.map((p, i) => (
-              <Circle key={`d${i}`} x={p.x} y={p.y} radius={4 / scale} fill={previewColor} />
+              <Circle key={`d${i}`} x={p.x} y={p.y} radius={4 / scale} fill={candColor} />
             ))}
-            {snapPt && (
-              <Circle x={snapPt.x} y={snapPt.y} radius={9 / scale} stroke="#dc2626" strokeWidth={2 / scale} />
+            {cand && mode === "draw" && (
+              <Circle x={cand.pt.x} y={cand.pt.y} radius={(cand.kind === "free" ? 5 : 9) / scale} stroke={candColor} strokeWidth={2 / scale} />
             )}
 
-            {/* calibration line */}
-            {calib.a && (
-              <Circle x={calib.a.x} y={calib.a.y} radius={5 / scale} fill="#d97706" />
-            )}
-            {calib.a && (calib.b || hover) && (
-              <Line
-                points={[calib.a.x, calib.a.y, (calib.b ?? hover!).x, (calib.b ?? hover!).y]}
-                stroke="#d97706"
-                strokeWidth={2 / scale}
-                dash={[6 / scale, 4 / scale]}
-              />
+            {/* calibration */}
+            {calib.a && <Circle x={calib.a.x} y={calib.a.y} radius={5 / scale} fill="#d97706" />}
+            {calib.a && (calib.b || cand) && (
+              <Line points={[calib.a.x, calib.a.y, (calib.b ?? cand!.pt).x, (calib.b ?? cand!.pt).y]} stroke="#d97706" strokeWidth={2 / scale} dash={[6 / scale, 4 / scale]} />
             )}
             {calib.b && <Circle x={calib.b.x} y={calib.b.y} radius={5 / scale} fill="#d97706" />}
           </Layer>
         </Stage>
       </div>
 
-      {/* Calibration input */}
+      {/* Contextual label bar */}
+      {selectedEdge && (
+        <div className="rounded-lg border border-slate-300 bg-white p-2">
+          <p className="mb-1 text-xs font-medium text-ink-soft">Label this edge:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {EDGE_TYPES.map((t) => {
+              const active =
+                planes.find((p) => p.id === selectedEdge.planeId)?.edgeTypes[selectedEdge.index] === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setEdgeType(selectedEdge.planeId, selectedEdge.index, t)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium capitalize ${active ? "text-white" : "border border-slate-300 text-ink"}`}
+                  style={active ? { backgroundColor: EDGE_COLORS[t] } : undefined}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {!selectedEdge && selectedPlane && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white p-2">
+          <span className="text-xs font-medium text-ink-soft">{selectedPlane.name} pitch:</span>
+          <select
+            value={selectedPlane.pitch}
+            onChange={(e) => updatePlane(selectedPlane.id, { pitch: Number(e.target.value) })}
+            className="rounded border border-slate-300 px-1.5 py-1 text-xs"
+          >
+            {Array.from({ length: 19 }, (_, i) => i).map((n) => (
+              <option key={n} value={n}>{n}:12</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => deletePlane(selectedPlane.id)} className="ml-auto text-xs font-medium text-red-600">Delete plane</button>
+        </div>
+      )}
+
       {calib.a && calib.b && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
-          <span className="text-sm text-amber-900">Length of that line:</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={feetInput}
-            onChange={(e) => setFeetInput(e.target.value)}
-            placeholder="feet"
-            className="w-24 rounded border border-amber-300 px-2 py-1 text-sm"
-          />
-          <button type="button" onClick={applyCalibration} className="rounded bg-amber-600 px-3 py-1 text-sm font-semibold text-white">
-            Set scale
-          </button>
+          <span className="text-sm text-amber-900">Length:</span>
+          <input type="number" inputMode="decimal" value={feetInput} onChange={(e) => setFeetInput(e.target.value)} placeholder="feet" className="w-24 rounded border border-amber-300 px-2 py-1 text-sm" />
+          <button type="button" onClick={applyCalibration} className="rounded bg-amber-600 px-3 py-1 text-sm font-semibold text-white">Set scale</button>
         </div>
       )}
 
@@ -412,88 +473,14 @@ export function MeasureCanvas({
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
             {EDGE_TYPES.map((t) =>
               totals.edgeLengthsByType[t] > 0.5 ? (
-                <span key={t} className="capitalize">
-                  {t}: {totals.edgeLengthsByType[t].toFixed(0)} ft
-                </span>
+                <span key={t} className="capitalize">{t}: {totals.edgeLengthsByType[t].toFixed(0)} ft</span>
               ) : null,
             )}
           </div>
         </div>
       )}
 
-      {!feetPerPixel && (
-        <p className="text-xs text-ink-soft">
-          Tip: set the scale first (the “Set scale” tool), then draw — areas need a calibrated scale.
-        </p>
-      )}
-
-      {/* Plane list + per-plane editor */}
-      {planes.length > 0 && (
-        <div className="space-y-2">
-          {planes.map((pl) => {
-            const m = feetPerPixel ? planeMetrics(pl, feetPerPixel) : null;
-            const isSel = pl.id === selectedId;
-            return (
-              <div
-                key={pl.id}
-                className={`rounded-lg border p-3 ${isSel ? "border-ink bg-slate-50" : "border-slate-200 bg-white"}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <button type="button" onClick={() => setSelectedId(isSel ? null : pl.id)} className="text-left">
-                    <span className="text-sm font-medium text-ink">{pl.name}</span>
-                    {m && (
-                      <span className="ml-2 text-xs text-ink-soft">
-                        {m.slopedAreaSqFt.toFixed(0)} ft² · pitch {pl.pitch}:12
-                      </span>
-                    )}
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-ink-soft">Pitch</label>
-                    <select
-                      value={pl.pitch}
-                      onChange={(e) => updatePlane(pl.id, { pitch: Number(e.target.value) })}
-                      className="rounded border border-slate-300 px-1.5 py-1 text-xs"
-                    >
-                      {Array.from({ length: 19 }, (_, i) => i).map((n) => (
-                        <option key={n} value={n}>{n}:12</option>
-                      ))}
-                    </select>
-                    <button type="button" onClick={() => deletePlane(pl.id)} className="text-xs font-medium text-red-600">
-                      Delete
-                    </button>
-                  </div>
-                </div>
-
-                {isSel && (
-                  <div className="mt-2 border-t border-slate-200 pt-2">
-                    <p className="mb-1 text-xs font-medium text-ink-soft">Edge labels</p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {pl.points.map((_, i) => (
-                        <div key={i} className="flex items-center gap-1.5">
-                          <span className="text-xs text-ink-soft">Edge {i + 1}</span>
-                          <select
-                            value={pl.edgeTypes[i] ?? "eave"}
-                            onChange={(e) => {
-                              const edgeTypes = [...pl.edgeTypes];
-                              edgeTypes[i] = e.target.value as EdgeType;
-                              updatePlane(pl.id, { edgeTypes });
-                            }}
-                            className="rounded border border-slate-300 px-1 py-0.5 text-xs capitalize"
-                          >
-                            {EDGE_TYPES.map((t) => (
-                              <option key={t} value={t} className="capitalize">{t}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {!feetPerPixel && <p className="text-xs text-ink-soft">Set the scale first — areas need a calibrated scale.</p>}
     </div>
   );
 }

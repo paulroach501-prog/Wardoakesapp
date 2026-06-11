@@ -121,3 +121,94 @@ export function snapToVertex(
   for (const p of draftPoints) consider(p);
   return best;
 }
+
+// Nearest point on segment a-b to p, plus the squared distance and parameter t.
+export function projectOnSegment(
+  p: Point,
+  a: Point,
+  b: Point,
+): { point: Point; dist: number; t: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const point = { x: a.x + t * dx, y: a.y + t * dy };
+  return { point, dist: distance(p, point), t };
+}
+
+export type EdgeRef = { planeId: string; index: number };
+
+// Snap onto the nearest existing edge (line segment) so an adjacent facet can
+// start exactly on a shared ridge/hip/valley. Vertex snapping should be tried
+// first by the caller (it takes precedence).
+export function snapToEdge(
+  target: Point,
+  planes: Plane[],
+  radiusWorld: number,
+): { point: Point; ref: EdgeRef } | null {
+  let best: { point: Point; ref: EdgeRef } | null = null;
+  let bestDist = radiusWorld;
+  for (const plane of planes) {
+    const n = plane.points.length;
+    if (n < 2) continue;
+    for (let i = 0; i < n; i++) {
+      const a = plane.points[i];
+      const b = plane.points[(i + 1) % n];
+      const proj = projectOnSegment(target, a, b);
+      if (proj.dist <= bestDist) {
+        bestDist = proj.dist;
+        best = { point: proj.point, ref: { planeId: plane.id, index: i } };
+      }
+    }
+  }
+  return best;
+}
+
+// Prefer 90°/45° angles relative to the previous edge's direction (so the roof
+// can be at any rotation), falling back to absolute axes for the first segment.
+// Returns the angle-locked point, or null if the pointer isn't within the
+// angular threshold (i.e. the user is overriding the preference).
+export function constrainAngle(
+  draft: Point[],
+  target: Point,
+  thresholdDeg = 7,
+): Point | null {
+  if (draft.length === 0) return null;
+  const last = draft[draft.length - 1];
+  const len = distance(last, target);
+  if (len < 1e-6) return null;
+
+  const base =
+    draft.length >= 2
+      ? Math.atan2(last.y - draft[draft.length - 2].y, last.x - draft[draft.length - 2].x)
+      : 0;
+  const ang = Math.atan2(target.y - last.y, target.x - last.x);
+  const step = Math.PI / 4; // 45°
+  const rel = ang - base;
+  const nearest = Math.round(rel / step) * step;
+  let diff = Math.abs(rel - nearest) % (2 * Math.PI);
+  if (diff > Math.PI) diff = 2 * Math.PI - diff;
+  if (diff > (thresholdDeg * Math.PI) / 180) return null;
+
+  const dir = base + nearest;
+  return { x: last.x + Math.cos(dir) * len, y: last.y + Math.sin(dir) * len };
+}
+
+// For alignment guides: existing vertices that share the candidate's x or y
+// (within radius), so we can draw the red "you're aligned" guide lines.
+export function alignmentVertices(
+  candidate: Point,
+  planes: Plane[],
+  radiusWorld: number,
+): { vertical: boolean; horizontal: boolean } {
+  let vertical = false;
+  let horizontal = false;
+  for (const plane of planes) {
+    for (const p of plane.points) {
+      if (Math.abs(p.x - candidate.x) <= radiusWorld) vertical = true;
+      if (Math.abs(p.y - candidate.y) <= radiusWorld) horizontal = true;
+    }
+  }
+  return { vertical, horizontal };
+}
