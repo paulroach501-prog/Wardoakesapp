@@ -177,10 +177,9 @@ export function PropertyActions({
         <span className="text-ink-soft">›</span>
       </Link>
 
-      {/* Inspection — still a stub */}
-      <button
-        type="button"
-        onClick={() => alert("“Start Inspection” is coming in a future slice.")}
+      {/* Inspection */}
+      <Link
+        href={`/properties/${propertyId}/inspect`}
         className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-canvas px-3 py-2.5 text-left active:bg-slate-100"
       >
         <span>
@@ -188,7 +187,7 @@ export function PropertyActions({
           <span className="block text-xs text-ink-soft">Photos, tags, voice notes, review bot</span>
         </span>
         <span className="text-ink-soft">›</span>
-      </button>
+      </Link>
     </div>
   );
 }

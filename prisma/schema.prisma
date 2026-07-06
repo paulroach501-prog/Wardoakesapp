@@ -52,6 +52,7 @@ model Property {
 
   reports    Report[]
   measurements Measurement[]
+  inspections Inspection[]
 
   @@index([customerId])
 }
@@ -115,6 +116,62 @@ model Measurement {
   planes     Json?
 
   @@index([propertyId])
+}
+
+// A field inspection of a property: the photos captured, their tags and
+// descriptions, and the chat transcript with the review bot. All of this is
+// context the FCA writer ingests later.
+model Inspection {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // OPEN | COMPLETE
+  status     String   @default("OPEN")
+  notes      String?
+
+  photos     InspectionPhoto[]
+  messages   InspectionMessage[]
+
+  @@index([propertyId])
+}
+
+model InspectionPhoto {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  imageUrl     String?
+  imageData    Bytes?
+
+  // Free-form tags like "hail", "test square", "flashing", "overview".
+  tags         String[] @default([])
+  // Inspector's own description (typed or voice-dictated).
+  description  String?
+  // AI-written description from the image + tags.
+  aiDescription String?
+
+  @@index([inspectionId])
+}
+
+model InspectionMessage {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  // "user" | "assistant"
+  role         String
+  content      String
+
+  @@index([inspectionId])
 }
 
 // Simple key/value app settings (e.g. default AI provider + model per task).
