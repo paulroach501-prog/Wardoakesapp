@@ -104,6 +104,43 @@ export async function describePhoto(
   return (data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "").trim();
 }
 
+// Generic single-shot text generation on the configured provider. Used for the
+// assembled-package field summary.
+export async function synthesize(system: string, user: string): Promise<string> {
+  const r = await resolveDefault();
+  if (!r) throw new Error("NO_AI_KEY");
+
+  if (r.provider === "claude") {
+    const client = new Anthropic();
+    const res = await client.messages.create({
+      model: r.model,
+      max_tokens: 1200,
+      system,
+      messages: [{ role: "user", content: user }],
+    });
+    return res.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n")
+      .trim();
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${r.model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini error ${res.status}`);
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  return (data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "").trim();
+}
+
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 // Reply in the inspection chat, given prior turns and a context summary of the

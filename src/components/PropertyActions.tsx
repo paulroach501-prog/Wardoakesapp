@@ -177,6 +177,18 @@ export function PropertyActions({
         <span className="text-ink-soft">›</span>
       </Link>
 
+      {/* Assemble package */}
+      <Link
+        href={`/properties/${propertyId}/assemble`}
+        className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left active:bg-slate-100"
+      >
+        <span>
+          <span className="block text-sm font-medium text-ink">Assemble FCA Package</span>
+          <span className="block text-xs text-ink-soft">Bundle everything → hand to the FCA writer</span>
+        </span>
+        <span className="text-ink-soft">›</span>
+      </Link>
+
       {/* Inspection */}
       <Link
         href={`/properties/${propertyId}/inspect`}
