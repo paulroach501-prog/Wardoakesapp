@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import { useGeminiModels } from "@/lib/useGeminiModels";
 
 type Provider = {
   name: string;
@@ -42,6 +43,11 @@ export function PropertyActions({
   const [engine, setEngine] = useState(configured[0]?.name ?? "");
   const currentProvider = configured.find((p) => p.name === engine);
   const [model, setModel] = useState(currentProvider?.defaultModel ?? "");
+  const liveGemini = useGeminiModels(engine === "gemini");
+  const modelOptions =
+    engine === "gemini" && liveGemini && liveGemini.length > 0
+      ? liveGemini
+      : currentProvider?.models ?? [];
 
   function onEngineChange(name: string) {
     setEngine(name);
@@ -113,7 +119,7 @@ export function PropertyActions({
               onChange={(e) => setModel(e.target.value)}
               className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink"
             >
-              {(currentProvider?.models ?? []).map((m) => (
+              {modelOptions.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
                 </option>

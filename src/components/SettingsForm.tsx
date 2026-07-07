@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ProviderInfo } from "@/lib/ai";
+import { useGeminiModels } from "@/lib/useGeminiModels";
 
 const selectClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20";
@@ -22,6 +23,12 @@ export function SettingsForm({
     () => providers.find((p) => p.name === provider),
     [providers, provider],
   );
+  // For Gemini, pull the live model list the key supports (falls back to static).
+  const liveGemini = useGeminiModels(provider === "gemini");
+  const modelOptions =
+    provider === "gemini" && liveGemini && liveGemini.length > 0
+      ? liveGemini
+      : current?.models ?? [];
   const [model, setModel] = useState(
     initialModel ?? current?.defaultModel ?? "",
   );
@@ -85,7 +92,7 @@ export function SettingsForm({
           }}
           className={selectClass}
         >
-          {(current?.models ?? []).map((m) => (
+          {modelOptions.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
             </option>
