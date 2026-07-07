@@ -86,6 +86,12 @@ export function AssembleClient({
         >
           Download .md
         </button>
+        <a
+          href={`/api/properties/${propertyId}/package.zip`}
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-ink"
+        >
+          Download job (.zip)
+        </a>
         <button
           type="button"
           onClick={compileDraft}

@@ -73,7 +73,33 @@ function ActiveInspection({ inspection }: { inspection: Inspection }) {
   const [messages, setMessages] = useState<Msg[]>(inspection.messages);
   const [selected, setSelected] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [describeProgress, setDescribeProgress] = useState<{ done: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Light-model pass over every photo lacking an AI description. Client-driven
+  // loop (one request per photo) so there's no server timeout on big batches.
+  async function describeAll() {
+    const todo = photos.filter((p) => !p.aiDescription);
+    if (todo.length === 0) return;
+    setDescribeProgress({ done: 0, total: todo.length });
+    for (let i = 0; i < todo.length; i++) {
+      const p = todo[i];
+      try {
+        const res = await fetch(`/api/photos/${p.id}/describe`, { method: "POST" });
+        const data = await res.json();
+        if (res.ok) {
+          setPhotos((ps) => ps.map((x) => (x.id === p.id ? { ...x, aiDescription: data.aiDescription } : x)));
+        } else if (data.error?.includes("No AI engine")) {
+          alert(data.error);
+          break;
+        }
+      } catch {
+        // skip this one, keep going
+      }
+      setDescribeProgress({ done: i + 1, total: todo.length });
+    }
+    setDescribeProgress(null);
+  }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -140,6 +166,18 @@ function ActiveInspection({ inspection }: { inspection: Inspection }) {
           />
         </label>
         <span className="text-xs text-ink-soft">{photos.length} photo{photos.length === 1 ? "" : "s"}</span>
+        {photos.some((p) => !p.aiDescription) && (
+          <button
+            type="button"
+            onClick={describeAll}
+            disabled={describeProgress !== null}
+            className="ml-auto rounded-lg border border-brand px-3 py-2 text-xs font-semibold text-brand disabled:opacity-60"
+          >
+            {describeProgress
+              ? `Describing ${describeProgress.done}/${describeProgress.total}…`
+              : `AI describe all (${photos.filter((p) => !p.aiDescription).length})`}
+          </button>
+        )}
       </div>
 
       {/* Grid */}
