@@ -8,10 +8,14 @@
 
 export type GeoPoint = { lat: number; lon: number; matchedAddress: string };
 
+import { buildStormHistory, stormHistorySummary, type StormHistory } from "@/lib/research/storm";
+
 export type WeatherContext = {
   point: GeoPoint | null;
   /** Human-readable summary passed to the AI research layer and shown in the PDF. */
   summary: string;
+  /** Structured graded storm history (Tier 1), when geocoding succeeded. */
+  storm: StormHistory | null;
 };
 
 const UA = "WardOakesFCA/0.1 (forensic condition assessment app)";
@@ -80,19 +84,24 @@ export async function getWeatherContext(address: string): Promise<WeatherContext
   if (!point) {
     return {
       point: null,
+      storm: null,
       summary:
         "Could not geocode the address against the US Census database; coordinates unavailable. Weather context should be verified manually.",
     };
   }
 
-  const nws = await nwsPointSummary(point);
+  const [nws, storm] = await Promise.all([
+    nwsPointSummary(point),
+    buildStormHistory(point.lat, point.lon).catch(() => null),
+  ]);
+
   const summary = [
     `Geocoded to ${point.lat.toFixed(4)}, ${point.lon.toFixed(4)} (matched: ${point.matchedAddress}).`,
     nws,
-    "Historical hail/wind event detail (NOAA NCEI Storm Events) to be incorporated; the AI research step should surface notable severe-weather events affecting this location.",
+    storm ? stormHistorySummary(storm) : null,
   ]
     .filter(Boolean)
-    .join(" ");
+    .join("\n");
 
-  return { point, summary };
+  return { point, storm, summary };
 }
