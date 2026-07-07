@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
+import { compressImage } from "@/lib/image";
 
 type Photo = {
   id: string;
@@ -80,7 +81,9 @@ function ActiveInspection({ inspection }: { inspection: Inspection }) {
     setUploading(true);
     try {
       const fd = new FormData();
-      Array.from(files).forEach((f) => fd.append("files", f));
+      // Compress hard on-device before upload — small storage, fast on cell.
+      const compressed = await Promise.all(Array.from(files).map((f) => compressImage(f)));
+      compressed.forEach((f) => fd.append("files", f));
       const res = await fetch(`/api/inspections/${inspection.id}/photos`, {
         method: "POST",
         body: fd,
