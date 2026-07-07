@@ -106,7 +106,11 @@ export async function describePhoto(
 
 // Generic single-shot text generation on the configured provider. Used for the
 // assembled-package field summary.
-export async function synthesize(system: string, user: string): Promise<string> {
+export async function synthesize(
+  system: string,
+  user: string,
+  maxTokens = 1200,
+): Promise<string> {
   const r = await resolveDefault();
   if (!r) throw new Error("NO_AI_KEY");
 
@@ -114,7 +118,7 @@ export async function synthesize(system: string, user: string): Promise<string> 
     const client = new Anthropic();
     const res = await client.messages.create({
       model: r.model,
-      max_tokens: 1200,
+      max_tokens: maxTokens,
       system,
       messages: [{ role: "user", content: user }],
     });
